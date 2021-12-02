@@ -25,7 +25,8 @@ import cvxpy as cp
 # SERVER DATA DIR
 DATA_DIR = "data"
 
-
+SUBSET = True
+# if True, run on "BIG ZONES", if False, runs on "SMALL ZONES"
 # In[271]:
 
 
@@ -90,11 +91,12 @@ def SaveBuildVars(build):
 
 # In[275]:
 
-
-# testzones_shapefile = "big_zones/big_zones.shp"
-testzones_shapefile = "sites/smallzones.shp"
+if SUBSET == True:
+		testzones_shapefile = "big_zones/big_zones.shp"
+else:
+	testzones_shapefile = "sites/smallzones.shp"
 testzones = gpd.read_file(opj(DATA_DIR,
-                                testzones_shapefile))
+								testzones_shapefile))
 testzones
 testzones2 = testzones.to_crs("EPSG:4326")
 
@@ -108,8 +110,8 @@ testzones = testzones2
 testzones
 
 # replace NaN w zero for zones without any rangeland area
-testzones['rangeland_']=testzones['rangeland_'].fillna(0)
-
+if SUBSET == False:
+	testzones['rangeland_']=testzones['rangeland_'].fillna(0)
 
 # In[276]:
 
@@ -118,28 +120,28 @@ testzones['rangeland_']=testzones['rangeland_'].fillna(0)
 
 waste_to_compost = 0.58 #% volume change from waste to compost
 
-roademissionscollect=3
-roademissionshaul=3
+roademissionscollect=0.22
+roademissionshaul=0.22
 
-izcollect=1
-izhaul=1
+izcollect=0.15
+izhaul=0.15
 
-roadcost=60
+roadcost=0.35
 
 industrialmax=1000000
 onfarmmax=100000
 communitymax=10000
 
 ifco_emiss = 30
-ofco_emiss = 20
-comco_emiss = 7
+ofco_emiss = 1
+comco_emiss = .5
 
-ifpro_emiss = 30
-ofpro_emiss = 20
-compro_emiss = 7
+ifpro_emiss = 18
+ofpro_emiss = 7
+compro_emiss = .5
 
-emiss_spread=6
-emiss_landfill=-8000
+emiss_spread=1.08
+emiss_landfill=-183
 
 
 ifcost = 200
@@ -154,42 +156,51 @@ seqfact=-100000
 
 ftype=['IndF', 'OnfarmF', 'CommF'] #facility types
 
-build={} #decision variable dictionary
+build = {} #decision variable dictionary for build
 
-for zone in range(len(testzones)):
-    build[zone]={}
-    z1loc=Fetch(testzones, 'zoneid', zone, 'centroid')
-    #print(z1loc)
-    for f in ftype:
-        build[zone][f]={}
-        #first decicion variable: how much (tons) to build per zone per type
-        build[zone][f]['qb']=cp.Variable()
-    for zone2 in range(len(testzones)):
-        
-        #grab second zone location for calculating distance
-        z2loc=Fetch(testzones, 'zoneid', zone2, 'centroid')
-        # calculate distance between all zones
-        dist=Distance(z1loc, z2loc)
-        # open new dictionary entry for saving between zone things
-        build[zone][zone2]={}
-        
-        #second decision variable: C flow from feedstock source in zone to build in a zone (zone or diff)
-        #for now not distinguishing by type, but could add this in later!!
-        build[zone][zone2]['qc']=cp.Variable()
-        #third decision variable: L flow from a build in a zone to a land in a second zone (same or diff)
-        build[zone][zone2]['ql']=cp.Variable()
-        
-        # in objective function, the following will get multiplied by the variables (qc & ql) above.
-        if zone==zone2: #dist equals zero, so multiply by intrazone assumption
-            build[zone][zone2]['collectemissions']=izcollect*1.4*roademissionscollect #kgC02/ton
-            build[zone][zone2]['haulemissions']=izhaul*1.4*roademissionscollect
-        else:
-            # if zones are different, grab the real distance between centroids
-            build[zone][zone2]['collectemissions']=dist*1.4*roademissionscollect
-            build[zone][zone2]['haulemissions']=dist*1.4*roademissionshaul
-            build[zone][zone2]['transcost']=dist*1.4*roadcost
-        #print(dist)
-        #print (zone, f)
+flow = {} #decision variable dictionary for material flow
+
+for zone in testzones['zoneid']:
+	# print("FIRST ZONE: ", zone)
+	build[zone]={}
+	#print(z1loc)
+	for f in ftype:
+		build[zone][f]={}
+		#first decicion variable: how much (tons) to build per zone per type
+		build[zone][f]['qb']=cp.Variable()
+
+for zone in testzones['zoneid']:
+	z1loc=Fetch(testzones, 'zoneid', zone, 'centroid')
+	flow[zone] = {}
+	for zone2 in testzones['zoneid']:
+		# open new dictionary entry for saving between zone things
+		flow[zone][zone2]= {}
+		#second decision variable: C flow from feedstock source in zone to build in a zone (zone or diff)
+		#for now not distinguishing by type, but could add this in later!!
+		flow[zone][zone2]['qc']=cp.Variable()
+		#third decision variable: L flow from a build in a zone to a land in a second zone (same or diff)
+		flow[zone][zone2]['ql']=cp.Variable()
+		
+
+		#grab second zone location for calculating distance
+		z2loc=Fetch(testzones, 'zoneid', zone2, 'centroid')
+		# calculate distance between all zones
+		dist=Distance(z1loc, z2loc)
+
+		# in objective function, the following will get multiplied by the variables (qc & ql) above.
+		if zone==zone2: #dist equals zero, so multiply by intrazone assumption
+			flow[zone][zone2]['collectemissions']=izcollect*1.4*roademissionscollect #kgC02/ton
+			# print(build[zone][zone2]['collectemissions'])
+			flow[zone][zone2]['haulemissions']=izhaul*1.4*roademissionshaul
+			# print(build[zone][zone2]['haulemissions'])
+			flow[zone][zone2]['transcost']=izcollect*1.4*roadcost
+		else:
+			# if zones are different, grab the real distance between centroids
+			flow[zone][zone2]['collectemissions']=dist*1.4*roademissionscollect
+			flow[zone][zone2]['haulemissions']=dist*1.4*roademissionshaul
+			flow[zone][zone2]['transcost']=dist*1.4*roadcost
+		print("DIST: ", dist)
+
 
 # print (build)
 
@@ -202,47 +213,49 @@ print("decision variables defined")
 ###building the objective function: EMISSIONS ###
 obj=0
 
-###collection and hauling emissions###
-# for zone in testzones['zoneid']:
-#     #print(zone) 
-#     for zone2 in testzones['zoneid']:
-# #         print(zone2)
-#         zz = build[zone][zone2]
-#         obj += zz['qc']* zz['collectemissions']
-#         obj += zz['ql'] * zz['haulemissions']
+## collection and hauling emissions###
+for zone in testzones['zoneid']:
+	#print(zone) 
+	for zone2 in testzones['zoneid']:
+		# print(zone2)
+		zz = flow[zone][zone2]
+		# CE = int(zz['collectemissions'])+1
+		obj += zz['qc'] * zz['collectemissions']
+		obj += zz['ql'] * zz['haulemissions'] 
+
 
 ###construction and processing emissions### 
 for zone in testzones['zoneid']:
-    #print(zone)
-    for f in ftype:
-        #print(f)
-        x=build[zone][f]['qb']  
-        if f == 'IndF':
-            obj+= x*ifco_emiss
-            obj+= x*ifpro_emiss
-        elif f=='OnfarmF':
-            obj+= x*ofco_emiss
-            obj+= x*ofpro_emiss
-        elif f=='CommF':
-            obj+= x*comco_emiss
-            obj+= x*compro_emiss
+	#print(zone)
+	for f in ftype:
+		#print(f)
+		x=build[zone][f]['qb']  
+		if f == 'IndF':
+			obj+= x*ifco_emiss
+			obj+= x*ifpro_emiss
+		elif f=='OnfarmF':
+			obj+= x*ofco_emiss
+			obj+= x*ofpro_emiss
+		elif f=='CommF':
+			obj+= x*comco_emiss
+			obj+= x*compro_emiss
 
 
 ######spreading, avoided landfill emissions and sequestration benefit ### 
 for zone in testzones['zoneid']:
-    #print(z1area)
-    for zone2 in testzones['zoneid']:
-        zz = build[zone][zone2]
-        
-        #avoided landfill emissions (no longer staying in county, now going to facility)
-        obj += zz['qc']*emiss_landfill
-        
+	#print(z1area)
+	for zone2 in testzones['zoneid']:
+		zz = flow[zone][zone2]
+		
+		#avoided landfill emissions (no longer staying in county, now going to facility)
+		obj += zz['qc']*emiss_landfill
+		
 #         spreading emissions (where emiss_spread is in kgco2/ton)
-        obj += zz['ql']*emiss_spread
-        
+		obj += zz['ql']*emiss_spread
+		
 #         sequestration benefit (where seqfact is kgco2e/ton)
-        obj += zz['ql']*seqfact
-        
+		obj += zz['ql']*seqfact
+		
 # print(obj)
 print("objective factor (mostly) defined")
 
@@ -255,60 +268,67 @@ cons=[]
 
 ##supply constraint###
 for zone in testzones['zoneid']:
-    #grab total avaialble feedstock per zone
-    z1msw=Fetch(testzones, 'zoneid', zone, 'msw_sum')
+	#grab total avaialble feedstock per zone
+	z1msw=Fetch(testzones, 'zoneid', zone, 'msw_sum')
 #     print("available feedstock: ", z1msw)
-    temp_supply=0
-    for zone2 in testzones['zoneid']:
-        temp_supply += build[zone][zone2]['qc']
-    # the amount you're sending out to all zones must be less than the feedstock available in initial zone
-    cons+=[temp_supply<=z1msw]
+	temp_supply=0
+	for zone2 in testzones['zoneid']:
+		temp_supply += flow[zone][zone2]['qc']
+	# the amount you're sending out to all zones must be less than the feedstock available in initial zone
+	cons+=[temp_supply<=z1msw]
 
-    
+	
 # ### land constraint###
 for zone2 in testzones['zoneid']:
-    #grab land area per zone
-    z2area=Fetch(testzones, 'zoneid', zone2, 'rangeland_') 
-    #TODO- make sure column names are consistent between small and big zones
+	#grab land area per zone
+	if SUBSET == True:
+		z2area=Fetch(testzones, 'zoneid', zone2, 'Shape_Area')
+	else:
+		z2area=Fetch(testzones, 'zoneid', zone2, 'rangeland_')
+	#TODO- make sure column names are consistent between small and big zones
 #     print("available land area: ", z2area)
-    temp_apply=0
-    for zone in testzones['zoneid']:
-        temp_apply += build[zone][zone2]['ql']
-    cons+=[temp_apply<=z2area]
-    
+	temp_apply=0
+	for zone in testzones['zoneid']:
+		temp_apply += flow[zone][zone2]['ql']
+	cons+=[temp_apply<=z2area]
+	
 
 # ###facility type###
 for zone in testzones['zoneid']:
-    for f in ftype:
-        if f == 'IndF':
-            cons+=[build[zone][f]['qb']<=industrialmax]
-            
-        elif f == 'OnfarmF':
-            cons+=[build[zone][f]['qb']<=onfarmmax]
-            
-        elif f == 'CommF':
-            cons+=[build[zone][f]['qb']<=communitymax]
-            
-            
+	for f in ftype:
+		if f == 'IndF':
+			cons+=[build[zone][f]['qb']<=industrialmax]
+			
+		elif f == 'OnfarmF':
+			cons+=[build[zone][f]['qb']<=onfarmmax]
+			
+		elif f == 'CommF':
+			cons+=[build[zone][f]['qb']<=communitymax]
+			
+			
 # ### build corresponds to flow in (and out???) ###
 for zone in testzones['zoneid']:
-    temp_build = 0
-    temp_inflow = 0
-    temp_outflow = 0
-    # sum all build type quantities in this zone
-    for f in ftype:
-        temp_build += build[zone][f]['qb']
-    # now go through all the zones and sum up how much is being sent to this zone
-    for zone2 in testzones['zoneid']:
-        temp_inflow += build[zone2][zone]['qc']
+	temp_build = 0
+	temp_inflow = 0
+	temp_outflow = 0
+	# sum all build type quantities in this zone
+	for f in ftype:
+		temp_build += build[zone][f]['qb']
+	# now go through all the zones and sum up how much is being sent to this zone
+	for zone2 in testzones['zoneid']:
+		temp_inflow += flow[zone2][zone]['qc']
 #     print("ZONE: ", zone, "-- BUILD: ", temp_build, "-- INFLOW: ", temp_inflow, ".")
-    for zone_land in testzones['zoneid']:
-        temp_outflow += build[zone][zone_land]['ql']
-    #these need to be balanced!
-    cons+=[temp_build>=temp_inflow]
-    # cannot strand compost at facility!
-    cons+=[temp_inflow == waste_to_compost * temp_outflow]
+	for zone_land in testzones['zoneid']:
+		temp_outflow += flow[zone][zone_land]['ql']
+	#these need to be balanced!
+	cons+=[temp_build>=temp_inflow]
+	# cannot strand compost at facility!
+	cons+=[temp_inflow == waste_to_compost * temp_outflow]
 
+for zone in testzones['zoneid']:
+	for zone2 in testzones['zoneid']:
+		cons += [flow[zone][zone2]['qc']>=0]
+		cons += [flow[zone][zone2]['ql']>=0]
 
 # In[280]:
 
@@ -319,7 +339,7 @@ prob = cp.Problem(cp.Minimize(obj), cons)
 
 val = prob.solve(verbose = True)
 
-# print(build)
+print("VALUE: ", val, "(kgCO2e")
 
 
 # In[282]:
@@ -329,10 +349,17 @@ val = prob.solve(verbose = True)
 
 for zone in build.keys():
 
-    indf=build[zone]['IndF']['qb'].value
-    onfarm=build[zone]['OnfarmF']['qb'].value
-    community=build[zone]['CommF']['qb'].value
-    print('Industrial', indf, 'On-farm', onfarm, 'Community', community)
+	indf=build[zone]['IndF']['qb'].value
+	onfarm=build[zone]['OnfarmF']['qb'].value
+	community=build[zone]['CommF']['qb'].value
+	print('Industrial', indf, 'On-farm', onfarm, 'Community', community)
+
+# for zone in flow.keys():
+# 	print("START ZONE: ", zone)
+# 	for zone2 in flow[zone].keys():
+# 		print("**END ZONE: ", zone2)
+# 		print(">>>>QC: ", flow[zone][zone2]['qc'].value)
+# 		print(">>>>QL: ", flow[zone][zone2]['ql'].value)
 
 
 # In[ ]:
