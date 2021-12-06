@@ -25,7 +25,7 @@ import cvxpy as cp
 # SERVER DATA DIR
 DATA_DIR = "data"
 
-SUBSET = True
+SUBSET = False
 # if True, run on "BIG ZONES", if False, runs on "SMALL ZONES"
 # In[271]:
 
@@ -91,25 +91,29 @@ def SaveBuildVars(build):
 
 # In[275]:
 
+# if doing subset, use BIG ZONES
 if SUBSET == True:
 		testzones_shapefile = "big_zones/big_zones.shp"
+# else, use our SMALL ZONES
 else:
 	testzones_shapefile = "sites/smallzones.shp"
+
+# read in
 testzones = gpd.read_file(opj(DATA_DIR,
 								testzones_shapefile))
-testzones
+# make sure in correct (degrees-based) CRS
 testzones2 = testzones.to_crs("EPSG:4326")
-
+# create centroid geometry
 testzones2['centroid'] = testzones2['geometry'].centroid
-
+# create new attribute (zoneid) from index
 testzones2['zoneid'] = testzones2.index
 
-
+# rename for use in 
 testzones = testzones2
 #weird things had happened with the crs, this mess should be fixing it!
-testzones
+# testzones
 
-# replace NaN w zero for zones without any rangeland area
+# replace NaN w zero for zones without any rangeland area (only needed for SMALL ZONES)
 if SUBSET == False:
 	testzones['rangeland_']=testzones['rangeland_'].fillna(0)
 
@@ -153,6 +157,7 @@ seqfact=-100000
 
 # In[277]:
 
+# SETS: 
 
 ftype=['IndF', 'OnfarmF', 'CommF'] #facility types
 
@@ -354,12 +359,12 @@ for zone in build.keys():
 	community=build[zone]['CommF']['qb'].value
 	print('Industrial', indf, 'On-farm', onfarm, 'Community', community)
 
-# for zone in flow.keys():
-# 	print("START ZONE: ", zone)
-# 	for zone2 in flow[zone].keys():
-# 		print("**END ZONE: ", zone2)
-# 		print(">>>>QC: ", flow[zone][zone2]['qc'].value)
-# 		print(">>>>QL: ", flow[zone][zone2]['ql'].value)
+for zone in flow.keys():
+	print("START ZONE: ", zone)
+	for zone2 in flow[zone].keys():
+		print("**END ZONE: ", zone2)
+		print(">>>>QC: ", flow[zone][zone2]['qc'].value)
+		print(">>>>QL: ", flow[zone][zone2]['ql'].value)
 
 
 # In[ ]:
